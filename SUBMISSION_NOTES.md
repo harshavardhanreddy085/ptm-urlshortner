@@ -1,52 +1,46 @@
-# Design Notes
+# Submission Notes
 
-## Scope and approach
+## Development approach
 
-The service has two public responsibilities: create a stored mapping from an original URL to a compact code, and redirect a visitor from that code to the original URL. The implementation uses Spring Boot for the HTTP layer, JPA for persistence, PostgreSQL as the datastore, and Flyway for repeatable schema migrations.
+AI was used for initial project structure and prototyping. I made the implementation decisions, defined the API behavior and validation rules, chose the persistence model, and performed the final review. The initial broader structure included caching and analytics; I intentionally removed them from the request path to keep the submission focused on the assignment's core behavior and one required datastore.
 
-The public API intentionally stays small:
+## Scope
 
-- `POST /shorten` creates or returns a short mapping.
-- `GET /{code}` returns a permanent redirect.
+The service provides two public operations: `POST /shorten` creates a stored URL mapping, and `GET /{code}` responds with `301 Moved Permanently` and redirects to the original URL. It uses Spring Boot, JPA, PostgreSQL, and Flyway. Responses make the main outcomes explicit: `201` for creation, `400` for invalid input, `409` for an unavailable alias, `404` for an unknown code, and `410` for an expired mapping.
 
-The response and error handling make the important outcomes explicit: creation is `201`, an unavailable custom alias is `409`, invalid input is `400`, an unknown code is `404`, and an expired link is `410`.
+## Design principles
 
-## Key decisions and trade-offs
+- Separation of concerns: controllers handle HTTP, services handle rules, repositories handle persistence.
+- Explicit behavior: duplicate URLs, custom aliases, and invalid inputs all have defined outcomes.
+- Database-backed invariants: uniqueness is enforced in PostgreSQL, not only in memory.
+- Safe defaults: normal retries are idempotent when no custom alias is supplied.
+- Minimal surface area: one datastore, a small API, and a focused code path for the core use case.
 
-### Random Base62 codes with a database uniqueness constraint
+## Key decisions
 
-Generated codes are seven-character Base62 values from `SecureRandom`. Base62 keeps links compact and URL-safe without encoding punctuation. The service checks whether a candidate already exists and retries if it does. The unique database constraint on `short_code` is the final invariant: no two mappings can be persisted with the same code.
+### Random Base62 codes with a database invariant
 
-An alternative was Base62 encoding a database sequence or record ID. That makes collisions impossible without retries, but exposes approximate insertion order and requires the identifier before the final code can be stored. Random codes better fit the small service's public-facing behavior. In a larger system, a save-time unique-constraint conflict caused by concurrent requests would be retried explicitly.
+Generated codes are seven-character Base62 values from `SecureRandom`. This keeps links compact and URL-safe without exposing database IDs or insertion order. The service rejects an already-used candidate before saving. PostgreSQL has a unique constraint on `short_code`; if two concurrent requests still select the same value, the losing request retries the save in a separate transaction with a new candidate. No two mappings can be persisted with the same code.
 
-### Idempotent duplicate URL requests
+Base62 encoding a database sequence was the main alternative. It gives deterministic uniqueness, but exposes approximate creation order and requires a different persistence flow. Random values better fit the desired public behavior here.
 
-For a request without a custom alias, shortening the same URL again returns the existing mapping. This is useful when a client retries after a timeout: it receives a stable result rather than a new short link each time.
+### Intentional duplicate behavior
 
-Custom aliases follow a different rule. They are an explicit request for a particular code, so the alias must be unused even if the original URL already has another mapping. This prevents a caller from accidentally believing it created a requested alias when it did not.
+Requests without a custom alias are idempotent: shortening the same URL returns the existing mapping. This gives callers a stable result when they retry after a timeout. A custom alias is different: it is an explicit request for a particular code and must be unused, even if that destination URL already has another mapping. This avoids pretending an alias was created when it was not.
 
-### PostgreSQL only
+### PostgreSQL as the single datastore
 
-PostgreSQL is the only runtime datastore. It offers durable mappings, indexes for lookups, and declarative uniqueness constraints. A cache would improve read latency at higher traffic, but it introduces invalidation behavior and another operational dependency. That complexity is not necessary for this scope.
+PostgreSQL provides durable storage, indexed lookups, and the uniqueness invariant needed for codes and aliases. A cache could improve read latency at larger scale, but adds invalidation rules and operational complexity. It is intentionally out of scope for this service.
 
-## Testing
+## SDE practices
 
-Tests focus on observable behavior and core business rules:
+- Versioned migrations instead of ad hoc schema edits.
+- Automated tests for validation, duplicates, aliases, collision retries, redirects, and missing mappings.
+- Clear transaction boundaries around the persistence flow.
+- Defensive input validation before any write.
+- Repository-backed persistence with explicit database constraints.
+- Documentation that matches the runtime behavior.
 
-- valid and invalid URL schemes;
-- generated candidate collision and retry;
-- duplicate URL reuse;
-- accepted and rejected aliases;
-- `301` redirect behavior;
-- `404` for a missing code.
+## Testing and next steps
 
-## Future work
-
-With more time, the next changes would be:
-
-- retry persistence after a concurrent unique-constraint conflict;
-- integration tests against PostgreSQL using Testcontainers;
-- rate limiting and abuse protection;
-- structured logs and metrics;
-- an explicit retention policy for expired mappings;
-- a decision on whether redirect status should stay permanent for links that can later expire or be disabled.
+The test suite covers validation, duplicate reuse, alias behavior, generated-code retries, concurrent collision retries, redirects, and missing mappings. With another day, I would add PostgreSQL integration tests with Testcontainers, rate limiting and abuse controls, structured metrics, and a retention policy for expired mappings.

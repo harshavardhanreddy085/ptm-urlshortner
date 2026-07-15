@@ -9,11 +9,13 @@ import com.ptmharsha.urlshortener.exception.InvalidURLException;
 import com.ptmharsha.urlshortener.exception.LinkExpiredException;
 import com.ptmharsha.urlshortener.exception.ResourceNotFoundException;
 import com.ptmharsha.urlshortener.repository.UrlMappingRepository;
+import com.ptmharsha.urlshortener.service.UrlMappingPersister;
 import com.ptmharsha.urlshortener.service.UrlService;
 import com.ptmharsha.urlshortener.util.ShortCodeGenerator;
 import com.ptmharsha.urlshortener.util.UrlValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,10 +24,12 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class UrlServiceImpl implements UrlService {
 
+    private static final int MAX_GENERATION_ATTEMPTS = 10;
+
     private final UrlMappingRepository repository;
+    private final UrlMappingPersister persister;
     private final ShortCodeGenerator generator;
     private final AppProperties appProperties;
 
@@ -49,18 +53,9 @@ public class UrlServiceImpl implements UrlService {
             return buildResponse(existing);
         }
 
-        String shortCode = generateShortCode(request);
-
-        UrlMapping entity = UrlMapping.builder()
-                .originalUrl(request.getUrl())
-                .shortCode(shortCode)
-                .customAlias(request.getCustomAlias())
-                .expiresAt(request.getExpiresAt())
-                .clickCount(0L)
-                .active(true)
-                .build();
-
-        UrlMapping saved = repository.save(entity);
+        UrlMapping saved = hasCustomAlias
+                ? saveCustomAlias(request)
+                : saveGeneratedCode(request);
 
         log.info("Saved URL mapping id={}, shortCode={}",
                 saved.getId(),
@@ -70,7 +65,7 @@ public class UrlServiceImpl implements UrlService {
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public UrlMapping getUrl(String shortCode) {
 
         UrlMapping mapping = repository.findByShortCode(shortCode)
@@ -95,22 +90,41 @@ public class UrlServiceImpl implements UrlService {
 
     }
 
-    private String generateShortCode(ShortenUrlRequest request) {
+    private UrlMapping saveCustomAlias(ShortenUrlRequest request) {
+        try {
+            return persister.save(newMapping(request, request.getCustomAlias()));
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateAliasException("Alias already exists");
+        }
+    }
 
-        if (hasCustomAlias(request)) {
+    private UrlMapping saveGeneratedCode(ShortenUrlRequest request) {
+        for (int attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
+            String candidate = generator.generate();
 
-            return request.getCustomAlias();
+            if (repository.existsByShortCode(candidate)) {
+                continue;
+            }
+
+            try {
+                return persister.save(newMapping(request, candidate));
+            } catch (DataIntegrityViolationException ex) {
+                log.warn("Generated short code collided; retrying");
+            }
         }
 
-        String code;
+        throw new IllegalStateException("Could not allocate a unique short code");
+    }
 
-        do {
-
-            code = generator.generate();
-
-        } while (repository.existsByShortCode(code));
-
-        return code;
+    private UrlMapping newMapping(ShortenUrlRequest request, String shortCode) {
+        return UrlMapping.builder()
+                .originalUrl(request.getUrl())
+                .shortCode(shortCode)
+                .customAlias(request.getCustomAlias())
+                .expiresAt(request.getExpiresAt())
+                .clickCount(0L)
+                .active(true)
+                .build();
     }
 
     private void validateRequest(ShortenUrlRequest request) {

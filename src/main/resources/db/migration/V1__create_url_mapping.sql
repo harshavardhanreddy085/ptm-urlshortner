@@ -4,9 +4,9 @@ CREATE TABLE url_mapping
 
     original_url TEXT NOT NULL,
 
-    short_code VARCHAR(30) NOT NULL,
+    short_code VARCHAR(10) NOT NULL,
 
-    custom_alias VARCHAR(30),
+    custom_alias VARCHAR(50),
 
     click_count BIGINT NOT NULL DEFAULT 0,
 

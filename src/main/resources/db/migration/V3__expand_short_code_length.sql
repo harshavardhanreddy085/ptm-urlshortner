@@ -1,0 +1,2 @@
+ALTER TABLE url_mapping
+ALTER COLUMN short_code TYPE VARCHAR(30);
