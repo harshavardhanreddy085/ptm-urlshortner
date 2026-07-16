@@ -396,6 +396,16 @@ Frameworks
 
 ---
 
+# 📄 Additional Documentation
+
+For implementation details, architecture decisions, design trade-offs, and engineering rationale, see:
+
+- 📘 [Submission Notes](./SUBMISSION_NOTES.md)
+
+The submission notes document explains the architectural decisions, design principles, testing strategy, and future enhancements considered during development.
+
+---
+
 # 🐳 Running the Application
 
 Start PostgreSQL
