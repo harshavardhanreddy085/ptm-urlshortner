@@ -1,143 +1,477 @@
-# URL Shortener
+# 🔗 URL Shortener
 
-A Spring Boot service that creates compact links and redirects them to their original URLs. Mappings are persisted in PostgreSQL and managed with Flyway migrations.
+> A production-ready URL Shortener built with **Java 17**, **Spring Boot 3**, **PostgreSQL**, and **Flyway**, following **Clean Architecture**, **SOLID principles**, and modern backend engineering practices.
+
+![Java](https://img.shields.io/badge/Java-17-orange)
+![Spring Boot](https://img.shields.io/badge/SpringBoot-3.5-success)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Flyway](https://img.shields.io/badge/Flyway-Database_Migrations-red)
+![Docker](https://img.shields.io/badge/Docker-Compose-blue)
+![Swagger](https://img.shields.io/badge/OpenAPI-3-brightgreen)
+![JUnit5](https://img.shields.io/badge/JUnit5-Tested-success)
+
+---
+
+# 📖 Overview
+
+URL Shortener is a RESTful backend service that converts long URLs into compact, shareable links and redirects users to their original destination using HTTP **301 Moved Permanently** redirects.
+
+The application is designed using enterprise backend development practices including layered architecture, dependency injection, centralized exception handling, database versioning, automated testing, and clean separation of concerns.
+
+---
+
+# ✨ Features
+
+- 🔗 Generate unique short URLs
+- ✍️ Custom alias support
+- ⏳ URL expiration
+- ↪️ HTTP 301 permanent redirects
+- ✅ Input validation
+- 🛡 Global exception handling
+- 🗄 PostgreSQL persistence
+- 📜 Flyway database migrations
+- 🐳 Docker Compose support
+- 📖 OpenAPI / Swagger documentation
+- 📝 Structured logging
+- 🧪 Unit & Controller tests
+
+---
+
+# 🏗 High Level Architecture
 
 ```text
-POST /shorten  ->  validate URL  ->  persist mapping  ->  return short code
-GET /{code}    ->  look up mapping ->  301 Location: original URL
+                    Client
+                       │
+                       ▼
+                REST Controller
+                       │
+               Request Validation
+                       │
+                       ▼
+                Service Layer
+             (Business Rules)
+                       │
+                       ▼
+          Spring Data JPA Repository
+                       │
+                       ▼
+                 PostgreSQL
+                       │
+                       ▼
+              Flyway Migrations
 ```
 
-## Requirements
+---
 
-- Java 17
-- Docker and Docker Compose
+# 🛠 Tech Stack
 
-## Run locally
+| Technology | Purpose |
+|------------|---------|
+| Java 17 | Programming Language |
+| Spring Boot 3 | Backend Framework |
+| Spring MVC | REST API |
+| Spring Data JPA | ORM |
+| PostgreSQL | Database |
+| Flyway | Database Versioning |
+| Docker Compose | Local Development |
+| Maven | Build Tool |
+| Lombok | Boilerplate Reduction |
+| Swagger/OpenAPI | API Documentation |
+| JUnit 5 | Testing |
+| Mockito | Mocking |
+| MockMvc | Controller Testing |
 
-Start PostgreSQL:
+---
 
-```bash
-docker compose up -d postgres
+# 📂 Project Structure
+
+```text
+src
+├── main
+│   ├── java
+│   │   └── com.ptmharsha.urlshortener
+│   │       ├── config
+│   │       ├── controller
+│   │       ├── dto
+│   │       │   ├── request
+│   │       │   └── response
+│   │       ├── entity
+│   │       ├── exception
+│   │       ├── repository
+│   │       ├── service
+│   │       │   └── impl
+│   │       ├── util
+│   │       └── UrlShortenerApplication
+│   │
+│   └── resources
+│       ├── db
+│       │   └── migration
+│       ├── application.yml
+│       └── logback-spring.xml
+│
+└── test
 ```
 
-Start the application:
+---
 
-```bash
-./mvnw spring-boot:run
+# 🚀 API Endpoints
+
+## Create Short URL
+
+```
+POST /api/v1/urls/shorten
 ```
 
-On Windows, run:
-
-```powershell
-.\mvnw.cmd spring-boot:run
-```
-
-The application listens on `http://localhost:8081`. Flyway creates the required schema at startup.
-
-## Design principles
-
-- Keep the public API small and explicit.
-- Put business rules in the service layer, not in the controller.
-- Validate input before persistence.
-- Use the database as the source of truth for uniqueness.
-- Make retry behavior deterministic and observable in tests.
-- Prefer one datastore and one responsibility per component.
-
-## API
-
-| Endpoint | Success response | Purpose |
-| --- | --- | --- |
-| `POST /shorten` | `201 Created` | Create a generated code or custom alias |
-| `GET /{code}` | `301 Moved Permanently` | Redirect to the stored original URL |
-
-### Create a generated short URL
-
-`POST /shorten`
-
-```bash
-curl -X POST http://localhost:8081/shorten \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/a/very/long/path"}'
-```
-
-Example response (`201 Created`):
+### Request
 
 ```json
 {
-  "originalUrl": "https://example.com/a/very/long/path",
-  "shortCode": "Ab3dE9F",
-  "shortUrl": "http://localhost:8081/Ab3dE9F"
+  "url":"https://google.com"
 }
 ```
 
-### Create a custom alias
+### Response
 
-```bash
-curl -X POST http://localhost:8081/shorten \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/docs","customAlias":"docs"}'
+```json
+{
+  "originalUrl":"https://google.com",
+  "shortCode":"AbC123X",
+  "shortUrl":"http://localhost:8081/AbC123X"
+}
 ```
 
-An alias is optional and must contain 3 to 30 letters, numbers, hyphens, or underscores. An alias that is already in use returns `409 Conflict`.
+---
 
-### Redirect
+## Create Custom Alias
 
-`GET /{code}` responds with **`301 Moved Permanently`** and a `Location` header pointing to the original URL. This is the core round-trip behavior of the service. Unknown codes return `404 Not Found`.
-
-```bash
-curl -I http://localhost:8081/docs
+```json
+{
+  "url":"https://google.com",
+  "customAlias":"google"
+}
 ```
 
-## Behavior and validation
+---
 
-- Only absolute `http` and `https` URLs are accepted.
-- Repeating a request for the same URL without a custom alias returns its existing mapping. This makes normal client retries idempotent.
-- Supplying an alias always requests that exact alias; it is never silently replaced by an existing mapping.
-- Inactive codes return `404`; expired codes return `410 Gone`.
+## Redirect
 
-| Situation | Result |
-| --- | --- |
-| Missing or invalid URL | `400 Bad Request` |
-| Requested alias is already taken | `409 Conflict` |
-| Unknown code | `404 Not Found` |
-| Expired code | `410 Gone` |
-
-## Short-code strategy
-
-Generated codes are seven-character Base62 values (`0-9`, `A-Z`, `a-z`) from `SecureRandom`, giving `62^7` URL-safe candidates. The service checks a candidate before persistence. PostgreSQL enforces a unique `short_code` constraint; if a concurrent request wins the same candidate, the service retries in a new transaction with another code. The database constraint is the final guarantee that duplicate codes cannot be stored.
-
-## SDE practices used
-
-- Schema changes are versioned with Flyway, not edited in place after release.
-- Controllers stay thin and delegate behavior to services.
-- The service layer owns validation, duplicate handling, and retry logic.
-- Persistence rules are enforced twice: in code and in the database.
-- Tests cover the main success path and the important edge cases.
-- The docs describe behavior intentionally so API consumers know what to expect.
-
-## Tests
-
-```bash
-./mvnw test
+```
+GET /api/v1/urls/{shortCode}
 ```
 
-On Windows:
+Returns
 
-```powershell
-.\mvnw.cmd test
+```
+301 Moved Permanently
 ```
 
-The suite contains 18 automated tests covering URL validation, duplicate requests, aliases, candidate collisions, concurrent persistence collisions, `301` redirects, and unknown codes.
+---
 
-## Project layout
+# ⏳ URL Expiration
+
+Example
+
+```json
+{
+    "url":"https://example.com",
+    "expiresAt":"2027-12-31T23:59:59"
+}
+```
+
+Expired URLs return
+
+```
+410 Gone
+```
+
+---
+
+# 🗄 Database
+
+Schema is managed entirely through Flyway migrations.
+
+## url_mapping
+
+| Column | Description |
+|----------|-------------|
+| id | Primary Key |
+| original_url | Original URL |
+| short_code | Generated Short Code |
+| custom_alias | Optional Alias |
+| expires_at | Expiration Timestamp |
+| click_count | Redirect Counter |
+| active | Active Status |
+| created_at | Created Timestamp |
+| updated_at | Updated Timestamp |
+
+---
+
+# 🧩 Engineering Practices
+
+## Clean Layered Architecture
+
+Business logic is isolated from HTTP and persistence layers.
 
 ```text
-src/main/java/.../controller   HTTP endpoints
-src/main/java/.../service      business rules and persistence boundary
-src/main/java/.../repository   JPA access
-src/main/java/.../entity       persistent model
-src/main/resources/db          Flyway migrations
-src/test/java                  unit and MVC tests
+Controller
+      │
+      ▼
+Service
+      │
+      ▼
+Repository
+      │
+      ▼
+Database
 ```
 
-See [SUBMISSION_NOTES.md](SUBMISSION_NOTES.md) for the implementation decisions and trade-offs.
+---
+
+## SOLID Principles
+
+### Single Responsibility Principle
+
+Each class has one responsibility.
+
+Examples
+
+- UrlController → HTTP requests
+- UrlService → Business logic
+- UrlMappingRepository → Persistence
+- GlobalExceptionHandler → Error handling
+- ShortCodeGenerator → Short code generation
+
+---
+
+### Open Closed Principle
+
+The application can be extended with new functionality without modifying existing components.
+
+Examples
+
+- QR Code generation
+- Rate limiting
+- Redis caching
+- Analytics
+
+---
+
+### Liskov Substitution Principle
+
+Business logic depends on interfaces.
+
+```text
+UrlService
+     ▲
+     │
+UrlServiceImpl
+```
+
+---
+
+### Interface Segregation Principle
+
+Interfaces remain small and focused.
+
+Example
+
+```
+UrlService
+```
+
+instead of one large service interface.
+
+---
+
+### Dependency Inversion Principle
+
+Dependencies are injected through constructors.
+
+```java
+@RequiredArgsConstructor
+```
+
+This improves testability and reduces coupling.
+
+---
+
+# 🎯 Design Patterns
+
+### Repository Pattern
+
+Separates persistence logic from business logic.
+
+```text
+Controller
+
+↓
+
+Service
+
+↓
+
+Repository
+```
+
+---
+
+### Dependency Injection
+
+Managed by the Spring IoC Container.
+
+---
+
+### Builder Pattern
+
+Used to construct DTOs and entities.
+
+```java
+UrlMapping.builder()
+```
+
+---
+
+### Factory Pattern
+
+Spring Boot automatically creates and manages application beans.
+
+---
+
+### Template Method Pattern
+
+Spring Data JPA provides repository implementations automatically.
+
+---
+
+# 🛡 Exception Handling
+
+Centralized exception handling is implemented using
+
+```java
+@RestControllerAdvice
+```
+
+Supported responses
+
+| Status | Meaning |
+|---------|---------|
+| 400 | Invalid Request |
+| 404 | Resource Not Found |
+| 409 | Alias Already Exists |
+| 410 | URL Expired |
+
+---
+
+# 📝 Logging
+
+Application logging uses **SLF4J** with **Logback**.
+
+Example events
+
+- Request received
+- URL validation
+- Short code generation
+- Database persistence
+- Redirect request
+- Expired URL detection
+- Exception handling
+
+---
+
+# 🧪 Testing
+
+Testing includes
+
+- Unit Tests
+- Service Layer Tests
+- Controller Tests
+- Validation Tests
+- Exception Handling Tests
+
+Frameworks
+
+- JUnit 5
+- Mockito
+- MockMvc
+
+---
+
+# 🐳 Running the Application
+
+Start PostgreSQL
+
+```bash
+docker compose up -d
+```
+
+Run Spring Boot
+
+```bash
+mvn spring-boot:run
+```
+
+Application
+
+```
+http://localhost:8081
+```
+
+---
+
+# 📖 API Documentation
+
+Swagger UI
+
+```
+http://localhost:8081/swagger-ui/index.html
+```
+
+OpenAPI JSON
+
+```
+http://localhost:8081/v3/api-docs
+```
+
+---
+
+# 🚀 Future Improvements
+
+Planned enhancements
+
+- Redis Cache
+- Click Analytics Dashboard
+- QR Code Generation
+- Rate Limiting
+- Password-Protected URLs
+- Testcontainers Integration
+- Prometheus Metrics
+- Grafana Dashboard
+- Kubernetes Deployment
+- GitHub Actions CI/CD
+
+---
+
+# 💡 Highlights
+
+This project demonstrates production-oriented backend engineering concepts including:
+
+- Clean Architecture
+- SOLID Principles
+- Layered Design
+- RESTful API Design
+- Constructor-based Dependency Injection
+- Global Exception Handling
+- Flyway Database Versioning
+- Bean Validation
+- Dockerized Development Environment
+- OpenAPI Documentation
+- Automated Testing
+- Maintainable Code Structure
+
+---
+
+## 👨‍💻 Author
+
+**Banka Harsha Reddy**
+
+Java Backend Developer | Spring Boot | PostgreSQL | Docker | REST APIs | System Design
